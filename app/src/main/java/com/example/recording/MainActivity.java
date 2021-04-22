@@ -1,7 +1,6 @@
 package com.example.recording;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.ActivityChooserView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
@@ -11,32 +10,23 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.hardware.display.DisplayManager;
-import android.hardware.display.VirtualDisplay;
-import android.media.MediaCodec;
-import android.media.MediaCodecInfo;
-import android.media.MediaFormat;
-import android.media.MediaMuxer;
-import android.media.projection.MediaProjection;
+import android.graphics.Bitmap;
+import android.graphics.Rect;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.Surface;
+import android.view.Display;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.sql.Time;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity<button> extends AppCompatActivity {
 
@@ -56,7 +46,6 @@ public class MainActivity<button> extends AppCompatActivity {
     private int mScreenDensity;
 
     private int REQUEST_MEDIA_PROJECTION = 12999;
-    private int REQUEST_SHORTCUT = 17182;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -102,10 +91,35 @@ public class MainActivity<button> extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 Log.e("ShortCut", "CLICKED");
-                Intent intent = new Intent(MainActivity.this, ScreenRecordService.class);
-                intent.putExtra("width", mWindowWidth);
-                intent.putExtra("height", mWindowHeight);
-                startService(intent);
+//                Intent intent = new Intent(MainActivity.this, ScreenRecordService.class);
+//                intent.putExtra("width", mWindowWidth);
+//                intent.putExtra("height", mWindowHeight);
+//                startService(intent);
+                Bitmap mBitmap = shotme(MainActivity.this);
+                String mImagePath="/sdcard/";
+                String mImageName = System.currentTimeMillis() + ".png";
+                if (mBitmap != null) {
+                    File fileFolder = new File(mImagePath);
+                    if (!fileFolder.exists()) fileFolder.mkdirs();
+                    File file = new File(mImagePath, mImageName);
+                    if (!file.exists()) {
+                        Log.d(TAG, "file create success ");
+                        try {
+                            file.createNewFile();
+                            FileOutputStream out = new FileOutputStream(file);
+                            mBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                            out.flush();
+                            out.close();
+                            Log.d(TAG, "file save success ");
+                            Toast.makeText(MainActivity.super.getApplicationContext(), "Screenshot is done.", Toast.LENGTH_SHORT).show();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }else{
+                    Log.d(TAG, "Image Failed! ");
+                    Toast.makeText(MainActivity.super.getApplicationContext(), "Failed", Toast.LENGTH_SHORT).show();
+                }
             }
         });
 
@@ -113,8 +127,24 @@ public class MainActivity<button> extends AppCompatActivity {
         if(!mPassPermissions) {
             ActivityCompat.requestPermissions(this, this.permissions, 99);
         }
+    }
 
+    public Bitmap shotme(Activity activity){
+        View view = activity.getWindow().getDecorView();
+        view.buildDrawingCache();
 
+        Rect rect = new Rect();
+        view.getWindowVisibleDisplayFrame(rect);
+        int statusBarHeight = rect.top;
+        Display display = activity.getWindowManager().getDefaultDisplay();
+
+        view.setDrawingCacheEnabled(true);
+
+        Bitmap bmp = Bitmap.createBitmap(view.getDrawingCache(), 0, statusBarHeight, mWindowWidth, mWindowHeight-statusBarHeight);
+
+        view.destroyDrawingCache();
+
+        return bmp;
     }
 
     private ServiceConnection conn = new ServiceConnection() {
