@@ -6,9 +6,13 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
@@ -24,8 +28,10 @@ import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.WindowManager;
+import android.widget.Toast;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Timer;
@@ -53,7 +59,59 @@ public class ScreenRecordService extends Service {
     private int mWindowWidth;
     private int mWindowHeight;
     private int mScreenDensity;
+    private int iMode;
+    private boolean mDone = true;
+    private boolean mRunning = false;
+    private SonThread sthread;
+    private Bitmap mBitmap;
+    private String mImageName;
+    private String mImagePath = "/sdcard/";
 
+
+    private void startCapture() {
+        ImageReader mImageReader = ImageReader.newInstance(mWindowWidth, mWindowHeight, ImageFormat.JPEG, 1);
+        mImageName = System.currentTimeMillis() + ".png";
+        Log.i(TAG, "image name is : " + mImageName);
+        Image image = mImageReader.acquireLatestImage();
+        if (image == null) {
+            Log.e(TAG, "image is null.");
+            return;
+        }
+        int width = image.getWidth();
+        int height = image.getHeight();
+        final Image.Plane[] planes = image.getPlanes();
+        final ByteBuffer buffer = planes[0].getBuffer();
+        int pixelStride = planes[0].getPixelStride();
+        int rowStride = planes[0].getRowStride();
+        int rowPadding = rowStride - pixelStride * width;
+        mBitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ALPHA_8);
+        mBitmap.copyPixelsFromBuffer(buffer);
+        mBitmap = Bitmap.createBitmap(mBitmap, 0, 0, width, height);
+        image.close();
+
+        if (mBitmap != null) {
+            File fileFolder = new File(mImagePath);
+            if (!fileFolder.exists()) fileFolder.mkdirs();
+            File file = new File(mImagePath, mImageName);
+            if (!file.exists()) {
+                Log.d(TAG, "file create success ");
+                try {
+                    file.createNewFile();
+                    FileOutputStream out = new FileOutputStream(file);
+                    mBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                    out.flush();
+                    out.close();
+                    Log.d(TAG, "file save success ");
+                    Toast.makeText(this.getApplicationContext(), "Screenshot is done.", Toast.LENGTH_SHORT).show();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }else{
+            Log.d(TAG, "Image Failed! ");
+            Toast.makeText(this.getApplicationContext(), "Failed", Toast.LENGTH_SHORT).show();
+        }
+    }
 
     public void start2(){
         mMediaProjection = mMediaProjectionManager.getMediaProjection(mResultCode, mData);
@@ -65,11 +123,21 @@ public class ScreenRecordService extends Service {
         startRecord();
     }
     public void start(){
-        sthread.start();
+        if(mDone) {
+            sthread = new SonThread(this);
+            sthread.start();
+            mDone = false;
+            mRunning = true;
+        }
     }
-    public void stop(){
-        recordStop();
-        release();
+    public void stop() throws InterruptedException {
+        if(mRunning) {
+            Log.e("STOP", "Ready to stop");
+            recordStop();
+            release();
+            Log.e("Show value ...", "mDone : " + Boolean.toString(mDone));
+            mRunning = false;
+        }
     }
 
     public class SonThread extends Thread{
@@ -86,13 +154,11 @@ public class ScreenRecordService extends Service {
             this.service.start2();
         }
     }
-    private SonThread sthread = new SonThread(this);
-    public SonThread getSthread(){
-        return sthread;
-    }
 
     private void startRecord() {
         try {
+            File fileFolder = new File(mVideoPath);
+            if (!fileFolder.exists()) fileFolder.mkdirs();
             mMuxer = new MediaMuxer(mVideoPath + System.currentTimeMillis() + ".mp4", MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
             recordVirtualDisplay();
         } catch (IOException e) {
@@ -137,6 +203,7 @@ public class ScreenRecordService extends Service {
                 mMediaCodec.releaseOutputBuffer(index, false);
             }
         }
+        mDone = true;
     }
 
     private void resetOutputFormat() {
@@ -179,11 +246,13 @@ public class ScreenRecordService extends Service {
         }
     }
 
-    private void recordStop() {
+    private void recordStop() throws InterruptedException {
         mIsQuit.set(true);
+        sthread.join();
     }
 
     private void release() {
+        mIsQuit.set(false);
         mMuxerStarted = false;
         Log.i(TAG, " release() ");
         if (mMediaCodec != null) {
@@ -211,7 +280,9 @@ public class ScreenRecordService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-
+        mWindowHeight = intent.getIntExtra("height",0);
+        mWindowWidth = intent.getIntExtra("width", 0);
+        startCapture();
         return super.onStartCommand(intent, flags, startId);
     }
 
