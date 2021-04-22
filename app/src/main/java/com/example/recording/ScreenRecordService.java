@@ -19,9 +19,11 @@ import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
+import android.view.WindowManager;
 
 import java.io.File;
 import java.io.IOException;
@@ -48,29 +50,45 @@ public class ScreenRecordService extends Service {
     private boolean isRecordOn;
     private int mResultCode;
     private Intent mData;
+    private int mWindowWidth;
+    private int mWindowHeight;
+    private int mScreenDensity;
 
-    public void start(){
+
+    public void start2(){
         mMediaProjection = mMediaProjectionManager.getMediaProjection(mResultCode, mData);
         configureMedia();
         mVirtualDisplay = mMediaProjection.createVirtualDisplay("record_screen",
-                1080, 2220, 8,
+                mWindowWidth, mWindowHeight, mScreenDensity,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 mSurface, null, null);
         startRecord();
-        Timer timer = new Timer();
-        timer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                recordStop();
-                release();
-            }
-        },5000);
-
-        startRecord();
+    }
+    public void start(){
+        sthread.start();
     }
     public void stop(){
         recordStop();
         release();
+    }
+
+    public class SonThread extends Thread{
+
+        private final ScreenRecordService service;
+
+        public SonThread(ScreenRecordService service){
+            this.service = service;
+        }
+
+        @Override
+        public void run(){
+            Log.e("TTHREAD", String.valueOf(mWindowHeight));
+            this.service.start2();
+        }
+    }
+    private SonThread sthread = new SonThread(this);
+    public SonThread getSthread(){
+        return sthread;
     }
 
     private void startRecord() {
@@ -83,7 +101,7 @@ public class ScreenRecordService extends Service {
     }
 
     private void configureMedia() {
-        MediaFormat mediaFormat = MediaFormat.createVideoFormat("video/avc", 1080, 2220);
+        MediaFormat mediaFormat = MediaFormat.createVideoFormat("video/avc", mWindowWidth, mWindowHeight);
         mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 6000000);
         mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
         mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
@@ -166,7 +184,6 @@ public class ScreenRecordService extends Service {
     }
 
     private void release() {
-        mIsQuit.set(false);
         mMuxerStarted = false;
         Log.i(TAG, " release() ");
         if (mMediaCodec != null) {
@@ -245,10 +262,13 @@ public class ScreenRecordService extends Service {
         public ScreenRecordService getService(){
             return ScreenRecordService.this;
         }
-        public void setData(int code, Intent data, MediaProjectionManager manager){
+        public void setData(int code, Intent data, MediaProjectionManager manager, int width, int height, int dense){
             mResultCode = code;
             mData = data;
             mMediaProjectionManager = manager;
+            mWindowWidth = width;
+            mWindowHeight = height;
+            mScreenDensity = dense;
         }
     }
     private Binder binder = new Binder();
