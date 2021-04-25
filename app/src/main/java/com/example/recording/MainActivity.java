@@ -65,11 +65,7 @@ public class MainActivity<button> extends AppCompatActivity {
             public void onClick(View v) {
                 Log.e("STOP", "CLICKED");
                 if(srecorder != null) {
-                    try {
-                        srecorder.stop();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+                    srecorder.stop();
                     unbindService(conn);
                     srecorder = null;
                 }
