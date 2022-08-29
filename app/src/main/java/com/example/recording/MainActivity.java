@@ -31,10 +31,13 @@ import java.io.IOException;
 public class MainActivity<button> extends AppCompatActivity {
 
     private static final String TAG = "MANMAN";
-    String[] permissions = new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.CAMERA};
+    private static final int REQUEST_RC = 78999;
+    String[] permissions = new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.CAMERA, Manifest.permission.INTERNET};
     boolean mPassPermissions = true;
     private ScreenRecordService srecorder = null;
     private ScreenRecordService.Binder binder = null;
+    private RemoteControl.Binder binderRemote = null;
+    private RemoteControl remoteControl = null;
     private int mResultCode;
     private Intent mData;
     private MediaProjectionManager mMediaProjectionManager;
@@ -95,31 +98,17 @@ public class MainActivity<button> extends AppCompatActivity {
 //                intent.putExtra("width", mWindowWidth);
 //                intent.putExtra("height", mWindowHeight);
 //                startService(intent);
-                Bitmap mBitmap = shotme(MainActivity.this);
-                String mImagePath="/sdcard/";
-                String mImageName = System.currentTimeMillis() + ".png";
-                if (mBitmap != null) {
-                    File fileFolder = new File(mImagePath);
-                    if (!fileFolder.exists()) fileFolder.mkdirs();
-                    File file = new File(mImagePath, mImageName);
-                    if (!file.exists()) {
-                        Log.d(TAG, "file create success ");
-                        try {
-                            file.createNewFile();
-                            FileOutputStream out = new FileOutputStream(file);
-                            mBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
-                            out.flush();
-                            out.close();
-                            Log.d(TAG, "file save success ");
-                            Toast.makeText(MainActivity.super.getApplicationContext(), "Screenshot is done.", Toast.LENGTH_SHORT).show();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }else{
-                    Log.d(TAG, "Image Failed! ");
-                    Toast.makeText(MainActivity.super.getApplicationContext(), "Failed", Toast.LENGTH_SHORT).show();
-                }
+
+                screenshot();
+            }
+        });
+        Button button4 = (Button) findViewById(R.id.btn_connect);
+        button4.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Log.e("CLICKED", "CONNECT");
+                Intent intent = new Intent(MainActivity.this, RemoteControl.class);
+                bindService(intent, remote, BIND_AUTO_CREATE);
             }
         });
 
@@ -128,6 +117,51 @@ public class MainActivity<button> extends AppCompatActivity {
             ActivityCompat.requestPermissions(this, this.permissions, 99);
         }
     }
+
+    private void screenshot(){
+        Bitmap mBitmap = shotme(MainActivity.this);
+        String mImagePath="/sdcard/";
+        String mImageName = System.currentTimeMillis() + ".png";
+        if (mBitmap != null) {
+            File fileFolder = new File(mImagePath);
+            if (!fileFolder.exists()) fileFolder.mkdirs();
+            File file = new File(mImagePath, mImageName);
+            if (!file.exists()) {
+                Log.d(TAG, "file create success ");
+                try {
+                    file.createNewFile();
+                    FileOutputStream out = new FileOutputStream(file);
+                    mBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                    out.flush();
+                    out.close();
+                    Log.d(TAG, "file save success ");
+                    Toast.makeText(MainActivity.super.getApplicationContext(), "Screenshot is done.", Toast.LENGTH_SHORT).show();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }else{
+            Log.d(TAG, "Image Failed! ");
+            Toast.makeText(MainActivity.super.getApplicationContext(), "Failed", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private ServiceConnection remote = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            binderRemote = (RemoteControl.Binder) service;
+            remoteControl = binderRemote.getService();
+            binderRemote.setData("119.28.213.240", 7888, mWindowWidth, mWindowHeight);
+//            Toast.makeText(MainActivity.this, "ready", Toast.LENGTH_SHORT).show();
+            remoteControl.start();
+            Log.e("HERE", "started");
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+
+        }
+    };
 
     public Bitmap shotme(Activity activity){
         View view = activity.getWindow().getDecorView();

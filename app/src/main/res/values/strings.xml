@@ -4,4 +4,5 @@
     <string name="stopword">停止</string>
     <string name="btn_start">开始</string>
     <string name="shortcut">截图</string>
+    <string name="connect">连接</string>
 </resources>
