@@ -6,36 +6,22 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.graphics.ImageFormat;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
-import android.media.Image;
-import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
-import android.media.MediaRecorder;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
-import android.os.Build;
-import android.os.Bundle;
 import android.os.IBinder;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Surface;
-import android.view.TextureView;
-import android.view.WindowManager;
-import android.widget.Toast;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ScreenRecordService extends Service {
@@ -63,55 +49,6 @@ public class ScreenRecordService extends Service {
     private boolean mDone = true;
     private boolean mRunning = false;
     private SonThread sthread;
-    private Bitmap mBitmap;
-    private String mImageName;
-    private String mImagePath = "/sdcard/";
-
-
-    private void startCapture() {
-        ImageReader mImageReader = ImageReader.newInstance(mWindowWidth, mWindowHeight, ImageFormat.JPEG, 1);
-        mImageName = System.currentTimeMillis() + ".png";
-        Log.i(TAG, "image name is : " + mImageName);
-        Image image = mImageReader.acquireLatestImage();
-        if (image == null) {
-            Log.e(TAG, "image is null.");
-            return;
-        }
-        int width = image.getWidth();
-        int height = image.getHeight();
-        final Image.Plane[] planes = image.getPlanes();
-        final ByteBuffer buffer = planes[0].getBuffer();
-        int pixelStride = planes[0].getPixelStride();
-        int rowStride = planes[0].getRowStride();
-        int rowPadding = rowStride - pixelStride * width;
-        mBitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ALPHA_8);
-        mBitmap.copyPixelsFromBuffer(buffer);
-        mBitmap = Bitmap.createBitmap(mBitmap, 0, 0, width, height);
-        image.close();
-
-        if (mBitmap != null) {
-            File fileFolder = new File(mImagePath);
-            if (!fileFolder.exists()) fileFolder.mkdirs();
-            File file = new File(mImagePath, mImageName);
-            if (!file.exists()) {
-                Log.d(TAG, "file create success ");
-                try {
-                    file.createNewFile();
-                    FileOutputStream out = new FileOutputStream(file);
-                    mBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
-                    out.flush();
-                    out.close();
-                    Log.d(TAG, "file save success ");
-                    Toast.makeText(this.getApplicationContext(), "Screenshot is done.", Toast.LENGTH_SHORT).show();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }else{
-            Log.d(TAG, "Image Failed! ");
-            Toast.makeText(this.getApplicationContext(), "Failed", Toast.LENGTH_SHORT).show();
-        }
-    }
 
     public void start2(){
         mMediaProjection = mMediaProjectionManager.getMediaProjection(mResultCode, mData);
@@ -280,9 +217,6 @@ public class ScreenRecordService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        mWindowHeight = intent.getIntExtra("height",0);
-        mWindowWidth = intent.getIntExtra("width", 0);
-        startCapture();
         return super.onStartCommand(intent, flags, startId);
     }
 
