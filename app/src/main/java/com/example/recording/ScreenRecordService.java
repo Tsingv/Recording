@@ -13,6 +13,7 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
+import android.media.MediaRecorder;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.IBinder;
@@ -45,166 +46,54 @@ public class ScreenRecordService extends Service {
     private int mWindowWidth;
     private int mWindowHeight;
     private int mScreenDensity;
-    private int iMode;
+    private MediaRecorder mediaRecorder;
     private boolean mDone = true;
     private boolean mRunning = false;
-    private SonThread sthread;
 
-    public void start2(){
-        mMediaProjection = mMediaProjectionManager.getMediaProjection(mResultCode, mData);
-        configureMedia();
-        mVirtualDisplay = mMediaProjection.createVirtualDisplay("record_screen",
-                mWindowWidth, mWindowHeight, mScreenDensity,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                mSurface, null, null);
-        startRecord();
-    }
     public void start(){
-        if(mDone) {
-            sthread = new SonThread(this);
-            sthread.start();
-            mDone = false;
-            mRunning = true;
-        }
-    }
-    public void stop() throws InterruptedException {
-        if(mRunning) {
-            Log.e("STOP", "Ready to stop");
-            recordStop();
-            release();
-            Log.e("Show value ...", "mDone : " + Boolean.toString(mDone));
-            mRunning = false;
-        }
-    }
-
-    public class SonThread extends Thread{
-
-        private final ScreenRecordService service;
-
-        public SonThread(ScreenRecordService service){
-            this.service = service;
-        }
-
-        @Override
-        public void run(){
-            Log.e("TTHREAD", String.valueOf(mWindowHeight));
-            this.service.start2();
-        }
-    }
-
-    private void startRecord() {
-        try {
-            File fileFolder = new File(mVideoPath);
-            if (!fileFolder.exists()) fileFolder.mkdirs();
-            mMuxer = new MediaMuxer(mVideoPath + System.currentTimeMillis() + ".mp4", MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
-            recordVirtualDisplay();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void configureMedia() {
-        MediaFormat mediaFormat = MediaFormat.createVideoFormat("video/avc", mWindowWidth, mWindowHeight);
-        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 6000000);
-        mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
-        mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
-        try {
-            mMediaCodec = MediaCodec.createEncoderByType("video/avc");
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        mMediaCodec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-        mSurface = mMediaCodec.createInputSurface();
-        mMediaCodec.start();
-    }
-
-    private void recordVirtualDisplay() {
-        while (!mIsQuit.get()) {
-            int index = mMediaCodec.dequeueOutputBuffer(mBufferInfo, 10000);
-            Log.d(TAG, "dequeue output buffer index=" + index);
-            if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {//后续输出格式变化
-                resetOutputFormat();
-            } else if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {//请求超时
-                Log.d(TAG, "retrieving buffers time out!");
-                try {
-                    // wait 10ms
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                }
-            } else if (index >= 0) {//有效输出
-                if (!mMuxerStarted) {
-                    throw new IllegalStateException("MediaMuxer dose not call addTrack(format) ");
-                }
-                encodeToVideoTrack(index);
-                mMediaCodec.releaseOutputBuffer(index, false);
+        if(mDone){
+            mMediaProjection = mMediaProjectionManager.getMediaProjection(mResultCode, mData);
+            mediaRecorder = new MediaRecorder();
+            mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+            mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            mediaRecorder.setOutputFile(
+                    mVideoPath + System.currentTimeMillis() + ".mp4");
+            mediaRecorder.setVideoSize(mWindowWidth, mWindowHeight);
+            mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+            mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+//        mediaRecorder.setVideoEncodingBitRate(5 * 1024 * 1024);
+            mediaRecorder.setVideoFrameRate(30);
+            try {
+                mediaRecorder.prepare();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-        }
-        mDone = true;
-    }
-
-    private void resetOutputFormat() {
-        // should happen before receiving buffers, and should only happen once
-        if (mMuxerStarted) {
-            throw new IllegalStateException("output format already changed!");
-        }
-        MediaFormat newFormat = mMediaCodec.getOutputFormat();
-
-        Log.d(TAG, "output format changed.\n new format: " + newFormat.toString());
-        mVideoTrackIndex = mMuxer.addTrack(newFormat);
-        mMuxer.start();
-        mMuxerStarted = true;
-        Log.i(TAG, "started media muxer, videoIndex=" + mVideoTrackIndex);
-    }
-
-    private void encodeToVideoTrack(int index) {
-        ByteBuffer encodedData = mMediaCodec.getOutputBuffer(index);
-
-        if ((mBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {//是编码需要的特定数据，不是媒体数据
-            // The codec config data was pulled out and fed to the muxer when we got
-            // the INFO_OUTPUT_FORMAT_CHANGED status.
-            // Ignore it.
-            Log.d(TAG, "ignoring BUFFER_FLAG_CODEC_CONFIG");
-            mBufferInfo.size = 0;
-        }
-        if (mBufferInfo.size == 0) {
-            Log.d(TAG, "info.size == 0, drop it.");
-            encodedData = null;
-        } else {
-            Log.d(TAG, "got buffer, info: size=" + mBufferInfo.size
-                    + ", presentationTimeUs=" + mBufferInfo.presentationTimeUs
-                    + ", offset=" + mBufferInfo.offset);
-        }
-        if (encodedData != null) {
-            encodedData.position(mBufferInfo.offset);
-            encodedData.limit(mBufferInfo.offset + mBufferInfo.size);
-            mMuxer.writeSampleData(mVideoTrackIndex, encodedData, mBufferInfo);//写入
-            Log.i(TAG, "sent " + mBufferInfo.size + " bytes to muxer...");
+            mVirtualDisplay = mMediaProjection.createVirtualDisplay("record_screen",
+                    mWindowWidth, mWindowHeight, mScreenDensity,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    mediaRecorder.getSurface(), null, null);
+            mediaRecorder.start();
+            mRunning = true;
+            mDone = false;
         }
     }
 
-    private void recordStop() throws InterruptedException {
-        mIsQuit.set(true);
-        sthread.join();
-    }
-
-    private void release() {
-        mIsQuit.set(false);
-        mMuxerStarted = false;
-        Log.i(TAG, " release() ");
-        if (mMediaCodec != null) {
-            mMediaCodec.stop();
-            mMediaCodec.release();
-            mMediaCodec = null;
-        }
-        if (mVirtualDisplay != null) {
-            mVirtualDisplay.release();
-            mVirtualDisplay = null;
-        }
-        if (mMuxer != null) {
-            mMuxer.stop();
-            mMuxer.release();
-            mMuxer = null;
+    public void stop(){
+        if(mRunning) {
+            if (mediaRecorder != null) {
+                mediaRecorder.stop();
+                mediaRecorder.release();
+                mediaRecorder = null;
+            }
+            if (mVirtualDisplay != null) {
+                mVirtualDisplay.release();
+                mVirtualDisplay = null;
+            }
+            if (mMediaProjection != null){
+                mMediaProjection.stop();
+                mMediaProjection = null;
+            }
         }
     }
 
