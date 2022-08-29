@@ -9,10 +9,15 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
+import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
+import android.media.MediaFormat;
+import android.media.MediaMuxer;
 import android.media.MediaRecorder;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
 import android.view.Surface;
@@ -20,130 +25,176 @@ import android.view.TextureView;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ScreenRecordService extends Service {
-    private static final String TAG = "Man in here";
-    private MediaRecorder mMediaRecorder = null;
-    private boolean Running = false;
-    private VirtualDisplay mVirtualDisplay;
+
+    private static final String TAG = "MANMAN";
+
+    private MediaProjectionManager mMediaProjectionManager;
     private MediaProjection mMediaProjection;
-    private MediaProjectionManager mProjectionManager;
+    private VirtualDisplay mVirtualDisplay;
+    private Surface mSurface;
+    private MediaCodec mMediaCodec;
+    private MediaMuxer mMuxer;
+    private String mVideoPath = "/sdcard/";
+    private boolean mMuxerStarted = false;
+    private int mVideoTrackIndex = -1;
+    private MediaCodec.BufferInfo mBufferInfo = new MediaCodec.BufferInfo();
+    private AtomicBoolean mIsQuit = new AtomicBoolean(false);
+    private boolean isRecordOn;
+    private int mResultCode;
+    private Intent mData;
 
+    public void start(){
+        mMediaProjection = mMediaProjectionManager.getMediaProjection(mResultCode, mData);
+        configureMedia();
+        mVirtualDisplay = mMediaProjection.createVirtualDisplay("record_screen",
+                1080, 2220, 8,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                mSurface, null, null);
+        startRecord();
+        Timer timer = new Timer();
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                recordStop();
+                release();
+            }
+        },5000);
 
-    private void initMediaRecorder(){
-        this.mMediaRecorder = new MediaRecorder();
+        startRecord();
+    }
+    public void stop(){
+        recordStop();
+        release();
     }
 
-    private void configMediaRecorder(){
-        File videoFile = new File("/sdcard/video.mp4");
-        Log.e(TAG, "文件路径="+videoFile.getAbsolutePath());
-        if (videoFile.exists()){
-            videoFile.delete();
-        }
-        this.mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION);//设置音频输入源  也可以使用 MediaRecorder.AudioSource.MIC
-        this.mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);//设置视频输入源
-        this.mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);//音频输出格式
-        this.mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);//设置音频的编码格式
-        this.mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);//设置图像编码格式
-
-//        mMediaRecorder.setVideoFrameRate(30);//要录制的视频帧率 帧率越高视频越流畅 如果设置设备不支持的帧率会报错  按照注释说设备会支持自动帧率所以一般情况下不需要设置
-        this.mMediaRecorder.setVideoSize(1080,2220);//设置录制视频的分辨率  如果设置设备不支持的分辨率会报错
-//        this.mMediaRecorder.setVideoEncodingBitRate(8*1920*1080);//设置比特率,比特率是每一帧所含的字节流数量,比特率越大每帧字节越大,画面就越清晰,算法一般是 5 * 选择分辨率宽 * 选择分辨率高,一般可以调整5-10,比特率过大也会报错
-//        this.mMediaRecorder.setOrientationHint(90);//设置视频的摄像头角度 只会改变录制的视频文件的角度(对预览图像角度没有效果)
-
-//        TextureView mTextureView = new TextureView(this);
-//        Surface surface = new Surface(mTextureView.getSurfaceTexture());
-//        this.mMediaRecorder.setPreviewDisplay(surface);//设置拍摄预览
-        this.mMediaRecorder.setOutputFile(videoFile.getAbsolutePath());//MP4文件保存路径
-
-    }
-
-    private void startRecorder(){
-        configMediaRecorder();
-        try{
-            this.mMediaRecorder.prepare();
-            this.mMediaRecorder.start();
+    private void startRecord() {
+        try {
+            mMuxer = new MediaMuxer(mVideoPath + System.currentTimeMillis() + ".mp4", MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+            recordVirtualDisplay();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void stopRecorder(){
-        this.mMediaRecorder.stop();
-        this.mMediaRecorder.reset();
-    }
-
-    private void pauseRecorder(){
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            mMediaRecorder.pause();//暂停
+    private void configureMedia() {
+        MediaFormat mediaFormat = MediaFormat.createVideoFormat("video/avc", 1080, 2220);
+        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 6000000);
+        mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
+        mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+        mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
+        try {
+            mMediaCodec = MediaCodec.createEncoderByType("video/avc");
+        } catch (IOException e) {
+            e.printStackTrace();
         }
+        mMediaCodec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        mSurface = mMediaCodec.createInputSurface();
+        mMediaCodec.start();
     }
 
-    private void resumeRecorder(){
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            mMediaRecorder.resume();//恢复
-        }
-    }
-
-    private void destroyRecorder(){
-        if(this.mMediaRecorder != null) {
-            try{
-                this.mMediaRecorder.stop();
-            } catch (IllegalStateException e) {
-                this.mMediaRecorder = null;
-                this.mMediaRecorder = new MediaRecorder();
-            } catch (RuntimeException e) {
-                e.printStackTrace();
-                this.mMediaRecorder = null;
-                this.mMediaRecorder = new MediaRecorder();
-            } catch (Exception e) {
-                e.printStackTrace();
-                this.mMediaRecorder = null;
-                this.mMediaRecorder = new MediaRecorder();
+    private void recordVirtualDisplay() {
+        while (!mIsQuit.get()) {
+            int index = mMediaCodec.dequeueOutputBuffer(mBufferInfo, 10000);
+            Log.d(TAG, "dequeue output buffer index=" + index);
+            if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {//后续输出格式变化
+                resetOutputFormat();
+            } else if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {//请求超时
+                Log.d(TAG, "retrieving buffers time out!");
+                try {
+                    // wait 10ms
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                }
+            } else if (index >= 0) {//有效输出
+                if (!mMuxerStarted) {
+                    throw new IllegalStateException("MediaMuxer dose not call addTrack(format) ");
+                }
+                encodeToVideoTrack(index);
+                mMediaCodec.releaseOutputBuffer(index, false);
             }
-            this.mMediaRecorder.reset();
-            this.mMediaRecorder.release();
-            this.mMediaRecorder = null;
         }
     }
 
-    public ScreenRecordService() {
+    private void resetOutputFormat() {
+        // should happen before receiving buffers, and should only happen once
+        if (mMuxerStarted) {
+            throw new IllegalStateException("output format already changed!");
+        }
+        MediaFormat newFormat = mMediaCodec.getOutputFormat();
+
+        Log.d(TAG, "output format changed.\n new format: " + newFormat.toString());
+        mVideoTrackIndex = mMuxer.addTrack(newFormat);
+        mMuxer.start();
+        mMuxerStarted = true;
+        Log.i(TAG, "started media muxer, videoIndex=" + mVideoTrackIndex);
     }
 
-    public void start(){
-        this.initMediaRecorder();
-        this.startRecorder();
-        this.Running = true;
-    }
+    private void encodeToVideoTrack(int index) {
+        ByteBuffer encodedData = mMediaCodec.getOutputBuffer(index);
 
-    public void stop(){
-        this.destroyRecorder();
-        this.Running = false;
-    }
-
-    public void pause(){
-        if(Running){
-            this.pauseRecorder();
-            this.Running = false;
+        if ((mBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {//是编码需要的特定数据，不是媒体数据
+            // The codec config data was pulled out and fed to the muxer when we got
+            // the INFO_OUTPUT_FORMAT_CHANGED status.
+            // Ignore it.
+            Log.d(TAG, "ignoring BUFFER_FLAG_CODEC_CONFIG");
+            mBufferInfo.size = 0;
+        }
+        if (mBufferInfo.size == 0) {
+            Log.d(TAG, "info.size == 0, drop it.");
+            encodedData = null;
+        } else {
+            Log.d(TAG, "got buffer, info: size=" + mBufferInfo.size
+                    + ", presentationTimeUs=" + mBufferInfo.presentationTimeUs
+                    + ", offset=" + mBufferInfo.offset);
+        }
+        if (encodedData != null) {
+            encodedData.position(mBufferInfo.offset);
+            encodedData.limit(mBufferInfo.offset + mBufferInfo.size);
+            mMuxer.writeSampleData(mVideoTrackIndex, encodedData, mBufferInfo);//写入
+            Log.i(TAG, "sent " + mBufferInfo.size + " bytes to muxer...");
         }
     }
 
-    public void resume(){
-        if(!Running){
-            this.resumeRecorder();
-            this.Running = true;
+    private void recordStop() {
+        mIsQuit.set(true);
+    }
+
+    private void release() {
+        mIsQuit.set(false);
+        mMuxerStarted = false;
+        Log.i(TAG, " release() ");
+        if (mMediaCodec != null) {
+            mMediaCodec.stop();
+            mMediaCodec.release();
+            mMediaCodec = null;
+        }
+        if (mVirtualDisplay != null) {
+            mVirtualDisplay.release();
+            mVirtualDisplay = null;
+        }
+        if (mMuxer != null) {
+            mMuxer.stop();
+            mMuxer.release();
+            mMuxer = null;
         }
     }
 
     @Override
     public IBinder onBind(Intent intent) {
         // TODO: Return the communication channel to the service.
-        throw new UnsupportedOperationException("Not yet implemented");
+        createNotificationChannel();
+        return binder;
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        createNotificationChannel();
+
         return super.onStartCommand(intent, flags, startId);
     }
 
@@ -172,7 +223,7 @@ public class ScreenRecordService extends Service {
         mNotificationManager.createNotificationChannel(mChannel);
 
         // 为该通知设置一个id
-        int notifyID = 1;
+        int notifyID = 1456789876;
         // 通知渠道的id
         String CHANNEL_ID = "my_channel_01";
         // Create a notification and set the notification channel.
@@ -180,7 +231,7 @@ public class ScreenRecordService extends Service {
                 .setContentTitle(getString(R.string.vip_dialog_title_text)) .setContentText(name + "正在录制屏幕内容...")
                 .setChannelId(CHANNEL_ID)
                 .build();
-        startForeground(1,notification);
+        startForeground(1456789876,notification);
     }
 
 
@@ -189,4 +240,17 @@ public class ScreenRecordService extends Service {
         super.onDestroy();
         stopForeground(true);
     }
+
+    public class Binder extends android.os.Binder {
+        public ScreenRecordService getService(){
+            return ScreenRecordService.this;
+        }
+        public void setData(int code, Intent data, MediaProjectionManager manager){
+            mResultCode = code;
+            mData = data;
+            mMediaProjectionManager = manager;
+        }
+    }
+    private Binder binder = new Binder();
 }
+
