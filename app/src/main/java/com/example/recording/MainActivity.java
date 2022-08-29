@@ -23,8 +23,12 @@ import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Surface;
+import android.view.View;
+import android.view.WindowManager;
+import android.widget.Button;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -33,16 +37,23 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity<button> extends AppCompatActivity {
 
     private static final String TAG = "MANMAN";
     String[] permissions = new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.CAMERA};
     boolean mPassPermissions = true;
     private ScreenRecordService srecorder;
     private ScreenRecordService.Binder binder = null;
+    private ScreenRecordService.SonThread sthread = null;
     private int mResultCode;
     private Intent mData;
     private MediaProjectionManager mMediaProjectionManager;
+
+    private WindowManager mWindowManager;
+    private int mWindowWidth;
+    private int mWindowHeight;
+    private DisplayMetrics displayMetrics;
+    private int mScreenDensity;
 
     private int REQUEST_MEDIA_PROJECTION = 999;
 
@@ -50,10 +61,27 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        Button button = (Button) findViewById(R.id.btn_stop);
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Log.e("HELOP", "CLICKED");
+                srecorder.stop();
+            }
+        });
+
         judgePermissions();
         if(!mPassPermissions) {
             ActivityCompat.requestPermissions(this, this.permissions, 99);
         }
+
+        mWindowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+        mWindowWidth = mWindowManager.getDefaultDisplay().getWidth();
+        mWindowHeight = mWindowManager.getDefaultDisplay().getHeight();
+        displayMetrics = new DisplayMetrics();
+        mWindowManager.getDefaultDisplay().getMetrics(displayMetrics);
+        mScreenDensity = displayMetrics.densityDpi;
 
         mMediaProjectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         startActivityForResult(mMediaProjectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
@@ -64,15 +92,9 @@ public class MainActivity extends AppCompatActivity {
         public void onServiceConnected(ComponentName name, IBinder service) {
             binder = (ScreenRecordService.Binder) service;
             srecorder = binder.getService();
-            binder.setData(mResultCode, mData, mMediaProjectionManager);
+            binder.setData(mResultCode, mData, mMediaProjectionManager, mWindowWidth, mWindowHeight, mScreenDensity);
             srecorder.start();
-            Timer timer = new Timer();
-            timer.schedule(new TimerTask() {
-                @Override
-                public void run() {
-                    srecorder.stop();
-                }
-            }, 5000);
+            Log.e("HERE", "started");
         }
 
         @Override
@@ -90,10 +112,10 @@ public class MainActivity extends AppCompatActivity {
             mData = data;
 //            startForegroundService(intent);
             bindService(intent, conn, BIND_AUTO_CREATE);
+            Log.e("BLOCKED", "You've binded");
         }
         super.onActivityResult(requestCode, resultCode, data);
     }
-
 
 
 //    @Override
