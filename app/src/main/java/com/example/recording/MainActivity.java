@@ -29,6 +29,7 @@ import android.view.Surface;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -42,9 +43,8 @@ public class MainActivity<button> extends AppCompatActivity {
     private static final String TAG = "MANMAN";
     String[] permissions = new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.CAMERA};
     boolean mPassPermissions = true;
-    private ScreenRecordService srecorder;
+    private ScreenRecordService srecorder = null;
     private ScreenRecordService.Binder binder = null;
-    private ScreenRecordService.SonThread sthread = null;
     private int mResultCode;
     private Intent mData;
     private MediaProjectionManager mMediaProjectionManager;
@@ -55,26 +55,13 @@ public class MainActivity<button> extends AppCompatActivity {
     private DisplayMetrics displayMetrics;
     private int mScreenDensity;
 
-    private int REQUEST_MEDIA_PROJECTION = 999;
+    private int REQUEST_MEDIA_PROJECTION = 12999;
+    private int REQUEST_SHORTCUT = 17182;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        Button button = (Button) findViewById(R.id.btn_stop);
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Log.e("HELOP", "CLICKED");
-                srecorder.stop();
-            }
-        });
-
-        judgePermissions();
-        if(!mPassPermissions) {
-            ActivityCompat.requestPermissions(this, this.permissions, 99);
-        }
 
         mWindowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
         mWindowWidth = mWindowManager.getDefaultDisplay().getWidth();
@@ -83,8 +70,51 @@ public class MainActivity<button> extends AppCompatActivity {
         mWindowManager.getDefaultDisplay().getMetrics(displayMetrics);
         mScreenDensity = displayMetrics.densityDpi;
 
-        mMediaProjectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        startActivityForResult(mMediaProjectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
+        Button button = (Button) findViewById(R.id.btn_stop);
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Log.e("STOP", "CLICKED");
+                if(srecorder != null) {
+                    try {
+                        srecorder.stop();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    unbindService(conn);
+                    srecorder = null;
+                }
+            }
+        });
+        Button button2 = (Button) findViewById(R.id.btn_start);
+        button2.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Log.e("START", "CLICKED");
+                if(srecorder == null) {
+                    mMediaProjectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+                    startActivityForResult(mMediaProjectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
+                }
+            }
+        });
+        Button button3 = (Button) findViewById(R.id.btn_shot);
+        button3.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Log.e("ShortCut", "CLICKED");
+                Intent intent = new Intent(MainActivity.this, ScreenRecordService.class);
+                intent.putExtra("width", mWindowWidth);
+                intent.putExtra("height", mWindowHeight);
+                startService(intent);
+            }
+        });
+
+        judgePermissions();
+        if(!mPassPermissions) {
+            ActivityCompat.requestPermissions(this, this.permissions, 99);
+        }
+
+
     }
 
     private ServiceConnection conn = new ServiceConnection() {
@@ -93,6 +123,7 @@ public class MainActivity<button> extends AppCompatActivity {
             binder = (ScreenRecordService.Binder) service;
             srecorder = binder.getService();
             binder.setData(mResultCode, mData, mMediaProjectionManager, mWindowWidth, mWindowHeight, mScreenDensity);
+            Toast.makeText(MainActivity.this, "ready", Toast.LENGTH_SHORT).show();
             srecorder.start();
             Log.e("HERE", "started");
         }
@@ -116,25 +147,6 @@ public class MainActivity<button> extends AppCompatActivity {
         }
         super.onActivityResult(requestCode, resultCode, data);
     }
-
-
-//    @Override
-//    protected void onStart() {
-//        super.onStart();
-//        Log.e("FFFF", "asdasdadasd");
-////        srecorder = new ScreenRecordService();
-////        srecorder.start();
-//        Intent intent = new Intent(this, ScreenRecordService.class);
-//        startService(intent);
-//        Timer timer = new Timer();
-//        timer.schedule(new TimerTask() {
-//            @Override
-//            public void run() {
-//                stopService(intent);
-//            }
-//        }, 5000);
-//
-//    }
 
     private void judgePermissions() {
         boolean permission = true;
